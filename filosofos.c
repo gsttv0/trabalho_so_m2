@@ -6,28 +6,24 @@
 #include <sys/time.h>
 #include <time.h>
 
-// Definindo os estados possíveis
 #define PENS 0
 #define FOME 1
 #define COME 2
 
-// Como a mesa é redonda, usamos módulo para achar os vizinhos
 #define ESQUERDA (i + N - 1) % N
 #define DIREITA (i + 1) % N
 
-// Variáveis Globais
-int N;                    // Número de filósofos
-int *estado;              // Vetor de estados (PENS, FOME, COME)
-int *refeicoes;           // Contador de quantas vezes cada um comeu
-int *garfos;              // Vetor para desenhar os garfos [O] ou [X]
+int N;                    
+int *estado;              
+int *refeicoes;           
+int *garfos;              
 
-sem_t *sem_filosofos;     // Vetor de semáforos (um para cada filósofo)
-pthread_mutex_t mutex;    // Mutex para proteger a alteração de estados e os prints
+sem_t *sem_filosofos;     
+pthread_mutex_t mutex;    
 
-struct timeval tempo_inicio; // Marca a hora exata que a simulação começou
-int simulacao_ativa = 1;     // Flag global para encerrar a simulação
+struct timeval tempo_inicio; 
+int simulacao_ativa = 1;     
 
-// Estrutura do "Envelope" (Mochila) que cada Thread vai receber
 typedef struct {
     int id;
     int min_pensar;
@@ -36,29 +32,13 @@ typedef struct {
     int max_comer;
 } FilosArgs;
 
-// =========================================================================
-// FUNÇÕES AUXILIARES DE TEMPO E IMPRESSÃO
-// =========================================================================
-
-// Retorna uma string com o formato [HH:MM:SS.mmm]
 void obter_tempo_atual(char *buffer) {
     struct timeval agora;
     gettimeofday(&agora, NULL);
-    
     long segundos = agora.tv_sec - tempo_inicio.tv_sec;
     long microsegundos = agora.tv_usec - tempo_inicio.tv_usec;
-    
-    if (microsegundos < 0) {
-        segundos -= 1;
-        microsegundos += 1000000;
-    }
-    
-    long milissegundos = microsegundos / 1000;
-    long horas = segundos / 3600;
-    long minutos = (segundos % 3600) / 60;
-    long segs_restantes = segundos % 60;
-    
-    sprintf(buffer, "[%02ld:%02ld:%02ld.%03ld]", horas, minutos, segs_restantes, milissegundos);
+    if (microsegundos < 0) { segundos -= 1; microsegundos += 1000000; }
+    sprintf(buffer, "[%02ld:%02ld:%02ld.%03ld]", segundos/3600, (segundos%3600)/60, segundos%60, microsegundos/1000);
 }
 
 const char* nome_estado(int e) {
@@ -68,28 +48,22 @@ const char* nome_estado(int e) {
     return "ERRO";
 }
 
-// Imprime a "fotografia" exata da mesa (Sempre chamada dentro do Mutex!)
 void imprimir_estado(int id_filosofo, const char* transicao) {
     char tempo[25];
     obter_tempo_atual(tempo);
 
     printf("%s F%d: %s\n", tempo, id_filosofo, transicao);
-
     printf("  Garfos: ");
     for (int i = 0; i < N; i++) {
         if (garfos[i] == 1) printf("[X] ");
         else printf("[O] ");
     }
-    printf("\n");
-
-    printf("  Filósofos: ");
+    printf("\n  Filósofos: ");
     for (int i = 0; i < N; i++) {
         printf("F%d:%s", i, nome_estado(estado[i]));
         if (i < N - 1) printf(" | ");
     }
-    printf("\n");
-
-    printf("  Refeições: ");
+    printf("\n  Refeições: ");
     for (int i = 0; i < N; i++) {
         printf("F%d:%d", i, refeicoes[i]);
         if (i < N - 1) printf(" | ");
@@ -102,88 +76,71 @@ void esperar_aleatorio(int min_ms, int max_ms) {
     usleep(tempo_ms * 1000); 
 }
 
-// =========================================================================
-// LÓGICA DE SINCRONIZAÇÃO (DIJKSTRA)
-// =========================================================================
-
 void testar(int i) {
     if (estado[i] == FOME && estado[ESQUERDA] != COME && estado[DIREITA] != COME) {
         estado[i] = COME;
         refeicoes[i]++; 
-        
         garfos[ESQUERDA] = 1; 
         garfos[i] = 1;        
-        
         imprimir_estado(i, "FOME > COME");
-        
-        sem_post(&sem_filosofos[i]); // Libera o filósofo para comer
+        sem_post(&sem_filosofos[i]); 
     }
 }
 
 void pegar_garfos(int i) {
     pthread_mutex_lock(&mutex); 
-    
     estado[i] = FOME;
     imprimir_estado(i, "PENS > FOME");
     testar(i); 
-    
     pthread_mutex_unlock(&mutex); 
-    
-    sem_wait(&sem_filosofos[i]); // Bloqueia se não conseguiu comer
+    sem_wait(&sem_filosofos[i]); 
 }
 
 void devolver_garfos(int i) {
     pthread_mutex_lock(&mutex); 
-    
     estado[i] = PENS;
     garfos[ESQUERDA] = 0;
     garfos[i] = 0;
-    
     imprimir_estado(i, "COME > PENS");
-    
-    // Acorda os vizinhos se eles estiverem com fome
     testar(ESQUERDA);
     testar(DIREITA);
-    
     pthread_mutex_unlock(&mutex); 
 }
-
-// =========================================================================
-// ROTINA DA THREAD E MAIN
-// =========================================================================
 
 void* rotina_filosofo(void* arg) {
     FilosArgs* dados = (FilosArgs*) arg;
     int i = dados->id;
-
     while (simulacao_ativa) {
         esperar_aleatorio(dados->min_pensar, dados->max_pensar);
         if (!simulacao_ativa) break; 
-
         pegar_garfos(i);
         esperar_aleatorio(dados->min_comer, dados->max_comer);
         devolver_garfos(i);
     }
-    
     pthread_exit(NULL);
 }
 
-int main() {
-    int tempo_simulacao;
-    int min_p, max_p, min_c, max_c;
-
-    printf("Digite os parametros (N Tempo_Segundos Min_Pensar Max_Pensar Min_Comer Max_Comer):\n");
-    if (scanf("%d %d %d %d %d %d", &N, &tempo_simulacao, &min_p, &max_p, &min_c, &max_c) != 6) {
-        printf("Erro na leitura dos dados.\n");
+// MUDANÇA PRINCIPAL AQUI: O main agora recebe argc e argv
+int main(int argc, char *argv[]) {
+    // Verifica se o usuário passou os 6 parâmetros obrigatórios na linha de comando
+    if (argc != 7) {
+        printf("Uso correto: %s <N> <Tempo_Simulacao_s> <Min_Pensar_ms> <Max_Pensar_ms> <Min_Comer_ms> <Max_Comer_ms>\n", argv[0]);
         return 1;
     }
+
+    // Convertendo os textos (argv) para números inteiros (atoi)
+    N = atoi(argv[1]);
+    int tempo_simulacao = atoi(argv[2]);
+    int min_p = atoi(argv[3]);
+    int max_p = atoi(argv[4]);
+    int min_c = atoi(argv[5]);
+    int max_c = atoi(argv[6]);
 
     if (N < 3) {
         printf("O numero de filosofos deve ser pelo menos 3.\n");
         return 1;
     }
 
-    // Alocação dinâmica
     estado = (int*) malloc(N * sizeof(int));
     refeicoes = (int*) calloc(N, sizeof(int)); 
     garfos = (int*) calloc(N, sizeof(int));
@@ -196,35 +153,29 @@ int main() {
     gettimeofday(&tempo_inicio, NULL);
     srand(time(NULL));
 
-    // Cria as threads [cite: 26]
     for (int i = 0; i < N; i++) {
         estado[i] = PENS;
         sem_init(&sem_filosofos[i], 0, 0); 
-        
         args[i].id = i;
         args[i].min_pensar = min_p;
         args[i].max_pensar = max_p;
         args[i].min_comer = min_c;
         args[i].max_comer = max_c;
-        
-        pthread_create(&threads[i], NULL, rotina_filosofo, (void*)&args[i]); [cite: 4]
+        pthread_create(&threads[i], NULL, rotina_filosofo, (void*)&args[i]);
     }
 
-    // Aguarda o tempo de simulação
     sleep(tempo_simulacao);
     simulacao_ativa = 0;
 
-    // Aguarda o fim das threads [cite: 4]
     for (int i = 0; i < N; i++) {
         pthread_join(threads[i], NULL);
     }
 
-    printf("--- RESUMO FINAL ---\n"); [cite: 85-86]
+    printf("--- RESUMO FINAL ---\n");
     for (int i = 0; i < N; i++) {
         printf("F%d comeu: %d vezes\n", i, refeicoes[i]);
     }
 
-    // Limpeza da memória
     pthread_mutex_destroy(&mutex);
     for (int i = 0; i < N; i++) sem_destroy(&sem_filosofos[i]);
     free(estado); free(refeicoes); free(garfos); free(sem_filosofos);
