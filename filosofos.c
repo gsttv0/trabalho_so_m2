@@ -30,6 +30,7 @@ typedef struct {
     int max_pensar;
     int min_comer;
     int max_comer;
+    unsigned int seed; // Semente individual para o rand_r
 } FilosArgs;
 
 void obter_tempo_atual(char *buffer) {
@@ -71,8 +72,9 @@ void imprimir_estado(int id_filosofo, const char* transicao) {
     printf("\n\n"); 
 }
 
-void esperar_aleatorio(int min_ms, int max_ms) {
-    int tempo_ms = min_ms + rand() % (max_ms - min_ms + 1);
+// Atualizado para usar rand_r (Thread-safe)
+void esperar_aleatorio(unsigned int *seed, int min_ms, int max_ms) {
+    int tempo_ms = min_ms + rand_r(seed) % (max_ms - min_ms + 1);
     usleep(tempo_ms * 1000); 
 }
 
@@ -82,7 +84,7 @@ void testar(int i) {
         refeicoes[i]++; 
         garfos[ESQUERDA] = 1; 
         garfos[i] = 1;        
-        imprimir_estado(i, "FOME > COME");
+        imprimir_estado(i, "FOME -> COME"); // Setinha arrumada
         sem_post(&sem_filosofos[i]); 
     }
 }
@@ -90,7 +92,7 @@ void testar(int i) {
 void pegar_garfos(int i) {
     pthread_mutex_lock(&mutex); 
     estado[i] = FOME;
-    imprimir_estado(i, "PENS > FOME");
+    imprimir_estado(i, "PENS -> FOME"); // Setinha arrumada
     testar(i); 
     pthread_mutex_unlock(&mutex); 
     sem_wait(&sem_filosofos[i]); 
@@ -101,7 +103,7 @@ void devolver_garfos(int i) {
     estado[i] = PENS;
     garfos[ESQUERDA] = 0;
     garfos[i] = 0;
-    imprimir_estado(i, "COME > PENS");
+    imprimir_estado(i, "COME -> PENS"); // Setinha arrumada
     testar(ESQUERDA);
     testar(DIREITA);
     pthread_mutex_unlock(&mutex); 
@@ -111,24 +113,24 @@ void* rotina_filosofo(void* arg) {
     FilosArgs* dados = (FilosArgs*) arg;
     int i = dados->id;
     while (simulacao_ativa) {
-        esperar_aleatorio(dados->min_pensar, dados->max_pensar);
+        esperar_aleatorio(&dados->seed, dados->min_pensar, dados->max_pensar);
         if (!simulacao_ativa) break; 
+        
         pegar_garfos(i);
-        esperar_aleatorio(dados->min_comer, dados->max_comer);
+        if (!simulacao_ativa) break; // Trava extra para garantir que ele não coma se o tempo acabou
+        
+        esperar_aleatorio(&dados->seed, dados->min_comer, dados->max_comer);
         devolver_garfos(i);
     }
     pthread_exit(NULL);
 }
 
-// MUDANÇA PRINCIPAL AQUI: O main agora recebe argc e argv
 int main(int argc, char *argv[]) {
-    // Verifica se o usuário passou os 6 parâmetros obrigatórios na linha de comando
     if (argc != 7) {
         printf("Uso correto: %s <N> <Tempo_Simulacao_s> <Min_Pensar_ms> <Max_Pensar_ms> <Min_Comer_ms> <Max_Comer_ms>\n", argv[0]);
         return 1;
     }
 
-    // Convertendo os textos (argv) para números inteiros (atoi)
     N = atoi(argv[1]);
     int tempo_simulacao = atoi(argv[2]);
     int min_p = atoi(argv[3]);
@@ -151,7 +153,6 @@ int main(int argc, char *argv[]) {
 
     pthread_mutex_init(&mutex, NULL);
     gettimeofday(&tempo_inicio, NULL);
-    srand(time(NULL));
 
     for (int i = 0; i < N; i++) {
         estado[i] = PENS;
@@ -161,11 +162,17 @@ int main(int argc, char *argv[]) {
         args[i].max_pensar = max_p;
         args[i].min_comer = min_c;
         args[i].max_comer = max_c;
+        args[i].seed = time(NULL) ^ i; // Semente única para cada filósofo
         pthread_create(&threads[i], NULL, rotina_filosofo, (void*)&args[i]);
     }
 
     sleep(tempo_simulacao);
     simulacao_ativa = 0;
+
+    // ACORDANDO QUEM FICOU PRESO (A correção brilhante)
+    for (int i = 0; i < N; i++) {
+        sem_post(&sem_filosofos[i]);
+    }
 
     for (int i = 0; i < N; i++) {
         pthread_join(threads[i], NULL);

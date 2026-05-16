@@ -27,7 +27,6 @@ int id_cliente_cadeira = -1;
 
 pthread_mutex_t mutex_fila; 
 sem_t sem_clientes;         
-sem_t sem_barbeiro;         
 
 struct timeval tempo_inicio;
 int simulacao_ativa = 1;
@@ -41,10 +40,11 @@ void obter_tempo_atual(char *buffer) {
     sprintf(buffer, "[%02ld:%02ld:%02ld.%03ld]", segundos/3600, (segundos%3600)/60, segundos%60, microsegundos/1000);
 }
 
-void esperar_aleatorio(int tempo_medio) {
+// Adicionada a semente para segurança de threads
+void esperar_aleatorio(unsigned int *seed, int tempo_medio) {
     int min = tempo_medio / 2;
     int max = tempo_medio + min;
-    int tempo_ms = min + rand() % (max - min + 1);
+    int tempo_ms = min + rand_r(seed) % (max - min + 1);
     usleep(tempo_ms * 1000);
 }
 
@@ -75,6 +75,8 @@ void imprimir_evento(const char* mensagem) {
 
 void* rotina_barbeiro(void* arg) {
     char msg[100];
+    unsigned int seed = time(NULL) ^ pthread_self();
+
     while (simulacao_ativa) {
         sem_wait(&sem_clientes);
         if (!simulacao_ativa && clientes_em_espera == 0) break;
@@ -87,11 +89,9 @@ void* rotina_barbeiro(void* arg) {
         
         sprintf(msg, "Barbeiro iniciou atendimento do cliente C%d", id_cliente_cadeira);
         imprimir_evento(msg);
-        
-        sem_post(&sem_barbeiro); 
         pthread_mutex_unlock(&mutex_fila); 
 
-        esperar_aleatorio(tempo_atendimento);
+        esperar_aleatorio(&seed, tempo_atendimento);
 
         pthread_mutex_lock(&mutex_fila); 
         clientes_atendidos++;
@@ -121,8 +121,8 @@ void* rotina_cliente(void* arg) {
         
         sem_post(&sem_clientes); 
         pthread_mutex_unlock(&mutex_fila); 
-
-        sem_wait(&sem_barbeiro); 
+        
+        // A thread do cliente encerra aqui (ele apenas pegou a senha da fila)
     } else {
         clientes_desistentes++;
         sprintf(msg, "Cliente C%d chegou, mas desistiu por falta de cadeira", id);
@@ -132,9 +132,7 @@ void* rotina_cliente(void* arg) {
     pthread_exit(NULL);
 }
 
-// MUDANÇA PRINCIPAL AQUI: O main agora recebe argc e argv
 int main(int argc, char *argv[]) {
-    // Verifica se os parâmetros foram passados na linha de comando
     if (argc != 5) {
         printf("Uso correto: %s <N_Cadeiras> <Tempo_Chegada_ms> <Tempo_Atendimento_ms> <Tempo_Simulacao_s>\n", argv[0]);
         return 1;
@@ -149,16 +147,15 @@ int main(int argc, char *argv[]) {
     
     pthread_mutex_init(&mutex_fila, NULL);
     sem_init(&sem_clientes, 0, 0); 
-    sem_init(&sem_barbeiro, 0, 0);
 
     gettimeofday(&tempo_inicio, NULL);
-    srand(time(NULL));
 
     pthread_t thread_barbeiro;
     pthread_create(&thread_barbeiro, NULL, rotina_barbeiro, NULL);
 
     int id_cliente_gerador = 1;
     struct timeval agora;
+    unsigned int seed = time(NULL);
 
     while (1) {
         gettimeofday(&agora, NULL);
@@ -170,7 +167,7 @@ int main(int argc, char *argv[]) {
         pthread_create(&t_cliente, NULL, rotina_cliente, id);
         pthread_detach(t_cliente);
 
-        esperar_aleatorio(taxa_chegada);
+        esperar_aleatorio(&seed, taxa_chegada);
     }
 
     simulacao_ativa = 0;
@@ -182,7 +179,6 @@ int main(int argc, char *argv[]) {
 
     pthread_mutex_destroy(&mutex_fila);
     sem_destroy(&sem_clientes);
-    sem_destroy(&sem_barbeiro);
     free(fila_clientes);
 
     return 0;
