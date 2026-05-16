@@ -122,7 +122,7 @@ void* rotina_cliente(void* arg) {
         sem_post(&sem_clientes); 
         pthread_mutex_unlock(&mutex_fila); 
         
-        // A thread do cliente encerra aqui (ele apenas pegou a senha da fila)
+        
     } else {
         clientes_desistentes++;
         sprintf(msg, "Cliente C%d chegou, mas desistiu por falta de cadeira", id);

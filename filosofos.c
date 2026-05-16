@@ -18,8 +18,8 @@ int *estado;
 int *refeicoes;           
 int *garfos;              
 
-sem_t *sem_filosofos;     
-pthread_mutex_t mutex;    
+sem_t *sem_filosofos; // cada fil. tem um semaforo, faz dormir e acordar 
+pthread_mutex_t mutex;    //apenas um filosofo muda de estado por vez
 
 struct timeval tempo_inicio; 
 int simulacao_ativa = 1;     
@@ -30,7 +30,7 @@ typedef struct {
     int max_pensar;
     int min_comer;
     int max_comer;
-    unsigned int seed; // Semente individual para o rand_r
+    unsigned int seed; 
 } FilosArgs;
 
 void obter_tempo_atual(char *buffer) {
@@ -84,7 +84,7 @@ void testar(int i) {
         refeicoes[i]++; 
         garfos[ESQUERDA] = 1; 
         garfos[i] = 1;        
-        imprimir_estado(i, "FOME -> COME"); // Setinha arrumada
+        imprimir_estado(i, "FOME -> COME"); 
         sem_post(&sem_filosofos[i]); 
     }
 }
@@ -92,7 +92,7 @@ void testar(int i) {
 void pegar_garfos(int i) {
     pthread_mutex_lock(&mutex); 
     estado[i] = FOME;
-    imprimir_estado(i, "PENS -> FOME"); // Setinha arrumada
+    imprimir_estado(i, "PENS -> FOME"); 
     testar(i); 
     pthread_mutex_unlock(&mutex); 
     sem_wait(&sem_filosofos[i]); 
@@ -103,7 +103,7 @@ void devolver_garfos(int i) {
     estado[i] = PENS;
     garfos[ESQUERDA] = 0;
     garfos[i] = 0;
-    imprimir_estado(i, "COME -> PENS"); // Setinha arrumada
+    imprimir_estado(i, "COME -> PENS"); 
     testar(ESQUERDA);
     testar(DIREITA);
     pthread_mutex_unlock(&mutex); 
@@ -162,7 +162,7 @@ int main(int argc, char *argv[]) {
         args[i].max_pensar = max_p;
         args[i].min_comer = min_c;
         args[i].max_comer = max_c;
-        args[i].seed = time(NULL) ^ i; // Semente única para cada filósofo
+        args[i].seed = time(NULL) ^ i; 
         pthread_create(&threads[i], NULL, rotina_filosofo, (void*)&args[i]);
     }
 
