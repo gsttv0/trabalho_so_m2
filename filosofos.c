@@ -72,7 +72,7 @@ void imprimir_estado(int id_filosofo, const char* transicao) {
     printf("\n\n"); 
 }
 
-// Atualizado para usar rand_r (Thread-safe)
+
 void esperar_aleatorio(unsigned int *seed, int min_ms, int max_ms) {
     int tempo_ms = min_ms + rand_r(seed) % (max_ms - min_ms + 1);
     usleep(tempo_ms * 1000); 

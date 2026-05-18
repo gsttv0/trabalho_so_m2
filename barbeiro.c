@@ -40,7 +40,6 @@ void obter_tempo_atual(char *buffer) {
     sprintf(buffer, "[%02ld:%02ld:%02ld.%03ld]", segundos/3600, (segundos%3600)/60, segundos%60, microsegundos/1000);
 }
 
-// Adicionada a semente para segurança de threads
 void esperar_aleatorio(unsigned int *seed, int tempo_medio) {
     int min = tempo_medio / 2;
     int max = tempo_medio + min;
